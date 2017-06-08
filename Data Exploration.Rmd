@@ -1,0 +1,659 @@
+---
+title: "Exploratory Data Analysis (EDA) first to deeply understand dataset"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+Assume all projects have same difficulty.
+
+To find the Work Efficiency I have added new feature to indicate how many hours the employee spend on a single project                            
+```{r include=FALSE}
+
+library(ggplot2)
+library(leaps)
+library(lars)
+library(ROCR)
+library(rpart)
+library(randomForest)
+library(pROC)
+library(e1071)
+library(caret)
+library(dplyr)
+library(corrplot)
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+library(gbm)
+
+HR_comma_sep <- read.csv("C:/Users/vasir/Downloads/HR_comma_sep.csv")
+HR_comma_sep<-data.frame(HR_comma_sep)
+HR_comma_sep$salary_f = factor(HR_comma_sep$salary, levels=c('low','medium','high'))
+
+```
+
+Renaming the predictors to appropriate names to improve the readability.
+
+```{r include=FALSE}
+
+colnames(HR_comma_sep)[9]<-"Department"
+
+```
+
+Adding unique identifier to each employee.
+
+```{r include=FALSE }
+
+HR_comma_sep["ID"]<-seq.int(nrow(HR_comma_sep))
+
+
+```
+
+Finding the NA values in the table.
+
+```{r pressure1, echo=FALSE}
+
+sum(is.na(HR_comma_sep))
+
+```
+
+Data Visualizations:
+
+```{r pressure2, echo=FALSE}
+
+par(mfrow=c(3,3))
+for(i in 2:6){hist(HR_comma_sep[,i],xlab=names(HR_comma_sep)[i])}
+
+```
+
+```{r include=FALSE}
+
+l1<-HR_comma_sep$left
+
+```
+
+Coverting the variables to proper data type.
+
+```{r include=FALSE}
+
+HR_comma_sep$left=as.factor(HR_comma_sep$left)
+HR_comma_sep$salary<-as.factor(HR_comma_sep$salary)
+HR_comma_sep$Work_accident<-as.factor(HR_comma_sep$Work_accident)
+HR_comma_sep$Department<-as.factor(HR_comma_sep$Department)
+HR_comma_sep$promotion_last_5years<-as.factor(HR_comma_sep$promotion_last_5years)
+
+```
+
+Finding the descriptive statistics.
+
+```{r pressure3, echo=FALSE}
+
+summary(HR_comma_sep)
+
+```
+
+Finding the correlation between variables.
+
+```{r include=FALSE}
+
+nums<-sapply(HR_comma_sep,is.numeric)
+cor_matrix<-cor(HR_comma_sep[,nums])
+HR_Corr<-HR_comma_sep %>% select(satisfaction_level:promotion_last_5years)
+
+```
+
+```{r pressure4, echo=FALSE}
+
+corrplot(cor_matrix,method = 'number')
+
+```
+
+
+```{r pressure5, echo=FALSE}
+
+ggplot(HR_comma_sep,aes(factor(left),average_montly_hours))+geom_boxplot(outlier.colour = "green", outlier.size = 3)+ggtitle("Average Monthly Hours Spent Vs Left Employees")
+ggplot(HR_comma_sep,aes(factor(left),time_spend_company))+geom_boxplot(outlier.colour = "green", outlier.size = 3)+xlab("Left")+ylab("Time Spend Company")+ggtitle("Time Spend Company Vs Left Employees")
+ggplot(HR_comma_sep,aes(Department))+geom_bar(aes(fill=factor(left)),position='dodge')
+ggplot(HR_comma_sep,aes(Department))+geom_bar(aes(fill=factor(time_spend_company)),position='dodge')
+
+```
+
+From the above plots we can conclude that there are few outliers in the data. So, finding the total number of observation who spend in company more than 8 years.
+
+```{r include=FALSE}
+
+attach(HR_comma_sep)
+sum(HR_comma_sep$time_spend_company>=8)
+
+```
+
+There are 376 employees who spend more than 8 years in the company. So, we cannot ignore these observations because majority employees are from sales and Management departments which are crutial departments in this company.
+
+
+creating new data sets, for the employees who has 'left' and 'non-left' into two seperate tables.
+
+```{r include=FALSE}
+
+left_employees<-HR_comma_sep[(HR_comma_sep$left==1),]
+non_left_employees<-HR_comma_sep[(HR_comma_sep$left==0),]
+
+```
+
+Plotting the histograms for 'time spend in the company' using left and non-left data tables.
+
+```{r pressure6, echo=FALSE}
+
+ggplot(left_employees,aes(time_spend_company))+geom_histogram(binwidth = 0.5)+xlab("Time Spend at the company")+ylab("Number of Observations")+ggtitle("left")
+ggplot(non_left_employees,aes(time_spend_company))+geom_histogram(binwidth = 0.5)+xlab("Time Spend at the company")+ylab("Number of Observations")+ggtitle("Not left")
+
+```
+
+Important Facts about Data:
+
+  1. People who spend 6 or more years and who spend 2 years at the company are less likely to go;
+
+  2. People are more likely to leave when they have spent 3-5 years here;
+
+  3. A interesting group: 5-year-group. People who are in this group are more likely to leave than stay;
+
+  4. When the years people spent in the company lies in 3-5: the more they've been here, the more likely they leave. 
+
+Finding right answers to these questions only based on this dataset could be challenging, but we can guess a little:
+  
+  1. When a person spend 6 or more years at a certain company, he/she must be used to it and would not like to go           unless he/she have to (so one more question can be raised here: why these people are leaving?)
+
+  2. When someone spend 3-5 years at a company, he/she is start to be treated as a 'professional' in his area which         make him/her a job-hopper to pursue higher salary
+  
+```{r pressure7, echo=FALSE}
+
+ggplot(HR_comma_sep,aes(x=time_spend_company,y=left,fill=factor(promotion_last_5years),colour=factor(promotion_last_5years)))+geom_bar(position='stack', stat='identity')+xlab("Time Spend in Company")+ylab("promotion in last 5 years")+ggtitle("Time Spend Compnay Vs Promotion in Last 5 years")
+
+```
+
+Very less people got promoted even though they are spending more time in the office.
+
+
+```{r pressure8, echo=FALSE}
+
+ggplot(HR_comma_sep,aes(x=salary,y=time_spend_company,fill=factor(left),colour=factor(left)))+geom_boxplot(outlier.colour = NA)+xlab("salary")+ylab("Time Spend Company")+ggtitle("Time Spend Company Vs Salaray")
+
+ggplot(HR_comma_sep, aes(x = last_evaluation, y = average_montly_hours, col = factor(left))) + 
+    geom_point(alpha = 0.5) + facet_wrap(~factor(salary_f)) + ylab("Average monthly hours worked") + 
+    xlab("Last evaluation rating") + ggtitle("Average monthly hrs vs Last Evaluation w.r.t. salary") + 
+    theme(plot.title = element_text(size = 16, face = "bold"))
+
+```
+
+From the above plot we can conclude that low and medium income people are leaving the company.
+
+```{r pressure9, echo=FALSE}
+
+ggplot(HR_comma_sep,aes(x=salary,y=satisfaction_level,fill=factor(left),colour=factor(left)))+geom_boxplot(outlier.colour = "black")+xlab("salary")+ylab("Satisfaction Level")
+
+ggplot(HR_comma_sep,aes(x=factor(time_spend_company),y=average_montly_hours,fill=factor(left),colour=factor(left)))+
+  geom_boxplot(outlier.colour = NA)+xlab("Time Spend Company")+ylab("Average Monthly Hours")
+
+ggplot(HR_comma_sep,aes(x=salary,y=last_evaluation,fill=factor(left),colour=factor(left)))+geom_boxplot(outlier.colour = "black")+xlab("salary")+ylab("Last Evaluation")
+
+ggplot(HR_comma_sep,aes(x=number_project,y=last_evaluation,fill=factor(left),colour=factor(left)))+geom_bar(position='stack', stat='identity')+xlab("Number of projects")+ylab("Last Evaluation")
+
+ggplot(HR_comma_sep,aes(x=time_spend_company,y=l1)) + geom_jitter(height = 0.1, width = 0.25) + geom_smooth(method = "glm", method.args = list(family = "binomial")) + facet_wrap(~salary_f) + ggtitle("Time spent in company before by retention and salary") + ylab("Has the employee left? (binary)") + xlab("Time spent in the company (years)") + theme(plot.title = element_text(size = 16, face = "bold"))
+
+ggplot(HR_comma_sep,aes(x=average_montly_hours,y=l1)) + geom_jitter(height = 0.1, width = 0.25) + geom_smooth(method = "glm", method.args = list(family = "binomial")) + facet_wrap(~salary_f) + ggtitle("Average monthly hours spent by an employee by salary and retention") + ylab("Has the employee left? (binary)") + xlab("Average monthly hours worked") + theme(plot.title = element_text(size = 16, face = "bold"))
+
+```
+
+who are valuable employess??
+
+The evaluation criteria and Monthly hours spend in the company are considered for evaluating the valuable employees. Here we are not considering the promotion because very less people got promoted in last 5 years.
+
+For our analysis we are finding the average time an employee spent on each project. Then, we converted the variable into 3 levels.
+
+In general an employee must work for 160 hours per month. We have splitted this variable into 3 levels and then according to the level we have given categories as [0,1,2]
+
+```{r include=FALSE} 
+
+HR_comma_sep['avg_hr_prj_range']<-cut(HR_comma_sep$average_montly_hours,4,labels = c(1:4))
+
+```
+
+Finding the total valuable employees.
+
+```{r include=FALSE} 
+
+b1<-HR_comma_sep$last_evaluation > 0.7
+b2<- HR_comma_sep$avg_hr_prj_range==3| HR_comma_sep$avg_hr_prj_range==4
+sum(b1 & b2)
+
+```
+
+Rule for Valueable Employees:
+
+Valuable employees can be decided based on their deptartment statistics.
+
+Variables Used to decide Valuable employees:
+
+average_montly_hours,last_evaluation while deciding threshold we have taken mean of each variable for each department.
+
+Total valueable Employees according to above rule: 4754
+
+Total number of employees :14999.
+
+Decide who all are valuable employees:
+
+```{r include=FALSE} 
+
+HR_comma_sep['valuedEmployee']<-0
+for (i in (1: nrow(HR_comma_sep))){
+  b1<-(HR_comma_sep[i,'last_evaluation'] > 0.7)
+  b2<-((HR_comma_sep[i,'avg_hr_prj_range']==3) | (HR_comma_sep[i,'avg_hr_prj_range']==4))
+  if(b1 & b2){
+    HR_comma_sep[i,'valuedEmployee'] = 1
+  }   
+}
+
+lev<-levels(as.factor(HR_comma_sep$Department))
+for(i in (1:length(lev))){
+      lev[i]<-sum(grepl(lev[i],HR_comma_sep$Department))
+}
+lev_list<-as.data.frame(levels(as.factor(HR_comma_sep$Department)))
+colnames(lev_list)<-"Department"
+lev_list['number_of_employees']<-lev
+
+left_employees<-HR_comma_sep[(HR_comma_sep$left==1),]
+lev_left<-levels(as.factor(left_employees$Department))
+for(i in (1:length(lev_left))){
+       lev_left[i]<-sum(grepl(lev_left[i],left_employees$Department))
+   }
+lev_list['number_of_employees_left']<-lev_left
+
+f<-function(x,y) as.numeric(x)/as.numeric(y)
+p<-as.data.frame(mapply(f,lev_list[,2],lev_list[,3]))
+lev_list['percent']<-p[,1]
+
+```
+
+```{r pressure10, echo=FALSE}
+
+lev_list
+
+```
+
+From the above table we can say that "management' and 'R and D' people are leaving more compared to other departments. The 'management' people are staying for long time and working for more hours in the company. The 'management' and 'R and D' people have more functional knowledge compared to other department. So, we are considering these people as valuable.
+
+Feature Selection:
+
+Cp Model:
+
+```{r include=FALSE}
+
+model.mat<-model.matrix(left~satisfaction_level+last_evaluation+number_project+average_montly_hours+time_spend_company+Work_accident+promotion_last_5years+Department+salary,data=HR_comma_sep,sep="_")
+sb<-leaps(x=model.mat[,2:19],y=HR_comma_sep[,7],method = 'Cp')
+
+```
+
+Plotting the cp method and finding the best subset model.
+
+```{r pressure11, echo=FALSE}
+
+plot(sb$size,sb$Cp,pch=19)
+cp_model1<-sb$which[which(sb$Cp==min(sb$Cp)),]
+cp_df<-data.frame(cp_model1)
+colnames(cp_df)<-"CpVariables"
+cp_df$IndependentVars<-colnames(model.mat)[-1]
+vars<-cp_df %>% filter(CpVariables==TRUE)
+Ind_vars<-vars$IndependentVars
+Ind_vars
+
+```
+
+Forward selection:
+
+```{r include=FALSE}
+
+forward_fit<-glm(left~1,data = HR_comma_sep,family=binomial(link="logit"))
+fit.forward<-step(forward_fit,scope = list(lower=left~1,upper=left~satisfaction_level+last_evaluation+number_project+average_montly_hours+time_spend_company+Work_accident+promotion_last_5years+Department+salary),direction = 'forward')
+
+```
+
+Finding the summary for forward selection.
+
+```{r pressure12, echo=FALSE}
+
+summary(fit.forward)
+
+```
+
+Backward Selection:
+
+```{r include=FALSE}
+
+fit.backward<-glm(left~satisfaction_level+last_evaluation+number_project+average_montly_hours+time_spend_company+Work_accident+promotion_last_5years+Department+salary,data = HR_comma_sep,family=binomial(link="logit"))
+fit.back<-step(fit.backward,scope = list(lower=left~1,upper=left~satisfaction_level+last_evaluation+number_project+average_montly_hours+time_spend_company+Work_accident+promotion_last_5years+Department+salary),direction = 'backward')
+
+```
+
+```{r pressure13, echo=FALSE}
+
+summary(fit.back)
+
+```
+
+LASSO:
+
+```{r include=FALSE}
+
+YVars<-as.numeric(HR_comma_sep[,7])
+
+fit.lasso<-lars(x=as.matrix(model.mat[,2:19]),y=as.matrix(YVars),type = 'lasso')
+
+```
+
+Plotting the LASSO,
+
+```{r pressure14, echo=FALSE}
+
+plot(fit.lasso)
+
+```
+
+From the above feature selection techniques we decided to we are selecting all variables from dataset because each 
+have given importantce to all 9 variables.
+
+Sampling the Data Set:
+
+We are using the Stratified sampling for diving the data set into Train and Test Datasets. Stratified Sampling will use the strata for dividing the dataset. The biggest advantage of the Stratified Random Sampling is that it reduces bias.
+
+```{r include=FALSE}
+
+xvars=c('satisfaction_level','last_evaluation','number_project','average_montly_hours','time_spend_company','Work_accident','promotion_last_5years','Department','salary')
+yvars='left'
+HR_comma_sep <- read.csv("C:/Users/vasir/Downloads/HR_comma_sep.csv")
+HR_comma_sep<-data.frame(HR_comma_sep)
+p1<-0.8
+set.seed(12345)
+inTrain<-createDataPartition(y=HR_comma_sep[,yvars],p=p1,list=FALSE)
+train_HR<-HR_comma_sep[inTrain,]
+test_HR<-HR_comma_sep[-inTrain,]
+stopifnot(nrow(train_HR)+nrow(test_HR)==nrow(HR_comma_sep))
+
+```
+
+Ftting Models:
+
+Genalized Linear Model:
+
+The Generalized linear Model is mainly used for classification. The GLM generalizes linear regression by allowing the linear model to be related to the response variable via a link function. The link function provides the relationship between the linear predictor and the mean of the distribution function. As our response variable is binary we tried the GLM with Binomial Distribution.
+
+```{r include=FALSE}
+
+glm.fit<-glm(left~.,data=train_HR,family = binomial(link="logit"))
+
+```
+
+We can check the summary statistics after fitting the model:
+
+```{r pressure15, echo=FALSE}
+
+summary(glm.fit)
+
+```
+
+Predicting the values for test data:
+
+```{r include=FALSE}
+
+test_HR[,'Yhat']<-predict(glm.fit,newdata=test_HR)
+fitted.values<-test_HR[,'Yhat']
+test_HR$Yhat<-ifelse( test_HR$Yhat>0.5,1,0)
+conf<-confusionMatrix(test_HR$Yhat,test_HR$left)
+
+```
+
+```{r pressure16, echo=FALSE}
+
+conf
+
+```
+
+ROC Curve
+
+```{r include=FALSE}
+
+fit_values<-prediction(fitted.values,test_HR$left)
+p<-performance(fit_values,measure = 'tpr',x.measure = 'fpr')
+
+```
+
+```{r pressure17, echo=FALSE}
+
+plot(p)
+abline(0, 1, lty = 2)
+
+```
+
+Classification and Regression Trees(CART) Algorithm:
+
+A CART tree is a binary decision tree that is constructed by splitting a node into two child nodes repeatedly,
+beginning with the root node that contains the whole learning sample.
+
+```{r include=FALSE}
+
+cart.fit<-rpart(left~.,data=train_HR,method='class')
+
+```
+Fancy plot for decision tree:
+
+```{r pressure18, echo=FALSE}
+
+fancyRpartPlot(cart.fit)
+
+```
+
+```{r pressure19, echo=FALSE}
+
+summary(cart.fit)
+
+```
+
+predicting for Test data using CART model:
+
+```{r include=FALSE}
+
+fit.values.cart<-predict(cart.fit,newdata = test_HR)
+fit.val1<-ifelse(fit.values.cart[,1]>0.5,1,0)
+fit.val2<-ifelse(fit.values.cart[,2]>0.5,1,0)
+conf.cart<-confusionMatrix(fit.val2,test_HR$left)
+
+```
+
+```{r pressure20, echo=FALSE}
+
+conf.cart
+
+```
+
+ROC Curve:
+
+```{r include=FALSE}
+
+fit.values.cart1<-predict(cart.fit,newdata = test_HR,type="prob")
+p.cart<-prediction(fit.values.cart[,2],test_HR$left)
+p.cart<-performance(p.cart,measure = 'tpr',x.measure = 'fpr')
+
+```
+
+```{r pressure21, echo=FALSE}
+
+plot(p.cart)
+abline(0,1,lty=2)
+
+```
+
+Random Forest Algorithm:
+
+Random forests are a way of averaging multiple deep decision trees, trained on different parts of the same training set, with the goal of reducing the variance. Random Forests helps to reduce the overfitting of data which is pro in Decision Trees.
+
+```{r include=FALSE}
+
+fit_rf<-randomForest(as.factor(left)~.,data=train_HR,importance=TRUE,ntree=1000)
+
+```
+
+```{r pressure22, echo=FALSE}
+
+fit_rf$confusion
+
+```
+
+Variable Importance for Random Forest Model:
+
+```{r pressure23, echo=FALSE}
+
+varImpPlot(fit_rf)
+
+```
+
+predicting for Test data using Random Forest model:
+
+```{r include=FALSE}
+
+fitted.values.rf<-predict(fit_rf,newdata = test_HR,type='class')
+fitted.values.rf1<-predict(fit_rf,newdata = test_HR,type='prob')
+conf.rf<-confusionMatrix(fitted.values.rf,test_HR$left)
+
+```
+
+```{r pressure24, echo=FALSE}
+
+conf.rf
+
+```
+
+ROC Curve:
+
+```{r include=FALSE}
+
+HR.rf<-roc(test_HR$left, fitted.values.rf1[,2])
+
+```
+
+```{r pressure25, echo=FALSE}
+
+plot(HR.rf, print.auc=TRUE, auc.polygon=TRUE)
+
+```
+
+Support Vector Machines:
+
+"Support Vector Machine" (SVM) is a supervised machine learning algorithm which can be used for both classification or regression challenges. Support Vector Machine is a frontier which best segregates the two classes (hyper-plane/ line).
+
+```{r include=FALSE}
+
+svm_model<-svm(left~.,data=train_HR,type='C-classification')
+svm_model1<-svm(left~.,data=train_HR,type='C-classification',probability = TRUE)
+
+```
+
+```{r pressure26, echo=FALSE}
+
+summary(svm_model)
+
+```
+
+predicting for Test data using SVM:
+
+```{r include=FALSE}
+
+pred<-predict(svm_model,newdata = test_HR)
+pred.prob<-predict(svm_model1,newdata = test_HR,type='prob',probability = TRUE)
+conf.svm<-confusionMatrix(pred,test_HR$left)
+
+```
+
+```{r pressure27, echo=FALSE}
+
+conf.svm
+
+```
+
+ROC Curve:
+
+```{r include=FALSE}
+
+p.svm<-prediction(attr(pred.prob,"probabilities")[,1],test_HR$left)
+svm.perf<-performance(p.svm,measure = 'tpr',x.measure = 'fpr')
+
+```
+
+```{r pressure28, echo=FALSE}
+
+plot(svm.perf)
+
+```
+
+Gradient Boosting:
+
+Gradient Boosting is basically about "boosting" many weak predictive models into a strong one, in the form of ensemble of weak models. It is a machine learning technique for regression and classification problems. 
+
+```{r include=FALSE}
+
+ con <- trainControl(method = "cv", number = 10)
+ model_GB <- train(as.factor(left) ~ ., data = train_HR, method = "gbm", trControl = con)
+
+```
+
+ Predicting for test data using Gradient Boosting
+
+```{r include=FALSE}
+
+predicted_GB = predict(model_GB, test_HR)
+Actual <- test_HR$left
+
+```
+
+```{r pressure30, echo=FALSE}
+
+confusionMatrix(reference = Actual, data = predicted_GB)
+
+```
+
+ ROC Curve for Gradiant Boosting
+
+```{r include=FALSE}
+
+ predicted_GB_prob = predict(model_GB, test_HR, type = "prob")
+ pr <- prediction(predicted_GB_prob[, 2], test_HR$left)
+ prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+
+```
+
+```{r pressure31, echo=FALSE}
+
+ plot(prf)
+
+```
+ 
+ Comparing all mdoels using ROC Curve
+ 
+ 
+```{r pressure32, echo=FALSE}
+ 
+#Logistic Regression
+Final_roc <- plot(roc(test_HR$left, fitted.values), print.auc = TRUE, col = "blue")
+ 
+#Decision Tree
+ Final_roc <- plot(roc(test_HR$left, fit.values.cart[,2]), print.auc = TRUE, col = "Green", print.auc.y = 0.6, add = TRUE)
+ 
+# Random Forest
+ Final_roc <- plot(roc(test_HR$left, fitted.values.rf1[,2]), print.auc = TRUE, col = "Purple", print.auc.y = 0.8, add = TRUE)
+ 
+# Gradient Boosting
+ Final_roc <- plot(roc(test_HR$left, predicted_GB_prob[, 2]), print.auc = TRUE, col = "Red", print.auc.y = 0.9, add = TRUE)
+ 
+# SVM
+Final_roc <- plot(roc(test_HR$left, attr(pred.prob,"probabilities")[,1]), print.auc = TRUE, col = "Black", print.auc.y = 0.1, add = TRUE)
+
+legend(x='bottomright',legend=c("GLM", "Decision Tree","Random Forest","Gradient Boosting","SVM"),col=c("blue","Green", "Purple","Red","Black"),lwd=2,xjust = 1, yjust = 1)
+
+```
